@@ -10,16 +10,16 @@ import shutil
 import tempfile
 import yaml
 
-TEMPFILE_NAMES = [
-    r'^.*\.swp$', # vim swap files
-    r'^\.', # .gitignore, etc
-]
-
 parser = argparse.ArgumentParser(description='generate a static site')
 parser.add_argument('--debug', action='store_true')
 parser.add_argument('--input', default=os.getcwd())
 parser.add_argument('--output', default=tempfile.mkdtemp())
 args = parser.parse_args()
+
+try:
+    ignore_regexes = [line[:-1] for line in open('_ignore').readlines()]
+except IOError:
+    ignore_regexes = []
 
 assert not os.listdir(args.output), 'output directory not empty'
 
@@ -66,8 +66,13 @@ while dirs:
 
         # Ignore anything starting with '_'.
         if p.startswith('_'):
-           if args.debug:
-               print '%s is an internal file, ignoring' % source_path
+            if args.debug:
+                print '%s is an internal file, ignoring' % source_path
+
+        # Also ignore anything in _ignore .
+        elif any(re.search(r, p) for r in ignore_regexes):
+            if args.debug:
+                print '%s is matched by .ignore , ignoring' % source_path
 
         # Make a directory.
         elif os.path.isdir(source_path):
@@ -77,51 +82,44 @@ while dirs:
             dirs.append((direc_list + [p], base_y))
 
         elif os.path.isfile(source_path):
+            y = {}
+            if p.endswith('.mako') or p.endswith('.mako_layout'):
+                _, ext = os.path.splitext(p)
 
-            # tempfiles just ignored.
-            if any(re.search(r, p) for r in TEMPFILE_NAMES):
-                if args.debug:
-                    print '%s is a tempfile, ignoring' % source_path
+                # Strip the front matter and maybe insert <%inherit/> tag.
+                page_y, source = read_and_strip_front_matter(source_path)
+                y = dict(base_y.items() + page_y.items())
+                if 'layout' in y:
+                    source = '<%%inherit file="/%s"/>\n%s' % (y['layout'], source)
+                try:
+                    os.makedirs(os.path.join(templates_dir, direc))
+                except OSError:
+                    pass
+                f = open(os.path.join(templates_dir, direc, p), 'w')
+                f.write(source)
+                f.close()
 
+                # If a .mako: add a 'url' attribute, and defer rendering until later.
+                if p.endswith('.mako'):
+                    y['url'] = os.path.join(direc, p[:-len(ext)])
+                    target_path = target_path[:-len(ext)]
+                    to_generate.append((os.path.join(direc, p), y, target_path))
             else:
-                y = {}
-                if p.endswith('.mako') or p.endswith('.mako_layout'):
-                    _, ext = os.path.splitext(p)
+                if args.debug:
+                    print 'copying %s to %s' % (source_path, target_path)
+                shutil.copyfile(source_path, target_path)
 
-                    # Strip the front matter and maybe insert <%inherit/> tag.
-                    page_y, source = read_and_strip_front_matter(source_path)
-                    y = dict(base_y.items() + page_y.items())
-                    if 'layout' in y:
-                        source = '<%%inherit file="/%s"/>\n%s' % (y['layout'], source)
-                    try:
-                        os.makedirs(os.path.join(templates_dir, direc))
-                    except OSError:
-                        pass
-                    f = open(os.path.join(templates_dir, direc, p), 'w')
-                    f.write(source)
-                    f.close()
+            # Any concrete file gets added to the 'tree', which is a nested dict.
+            t = global_tree
+            for part in filter(None, os.path.normpath(target_path[len(args.output):]).split(os.sep)):
+                if part not in t:
+                    t[part] = {}
+                t = t[part]
 
-                    # If a .mako: add a 'url' attribute, and defer rendering until later.
-                    if p.endswith('.mako'):
-                        y['url'] = os.path.join(direc, p[:-len(ext)])
-                        target_path = target_path[:-len(ext)]
-                        to_generate.append((os.path.join(direc, p), y, target_path))
-                else:
-                    if args.debug:
-                        print 'copying %s to %s' % (source_path, target_path)
-                    shutil.copyfile(source_path, target_path)
-
-                # Any concrete file gets added to the 'tree', which is a nested dict.
-                t = global_tree
-                for part in filter(None, os.path.normpath(target_path[len(args.output):]).split(os.sep)):
-                    if part not in t:
-                        t[part] = {}
-                    t = t[part]
-
-                # The leaf (file) gets the yaml,
-                t.clear()
-                for k, v in y.items():
-                    t[k] = v
+            # The leaf (file) gets the yaml,
+            t.clear()
+            for k, v in y.items():
+                t[k] = v
         else:
             assert False, 'what is this: %s' % source_path
 
