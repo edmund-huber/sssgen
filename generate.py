@@ -16,10 +16,13 @@ parser.add_argument('--input', default=os.getcwd())
 parser.add_argument('--output', default=tempfile.mkdtemp())
 args = parser.parse_args()
 
+config = {
+    'ignore_regexes': []
+}
 try:
-    ignore_regexes = [line[:-1] for line in open('_ignore').readlines()]
+    config = dict(config.items() + yaml.load(open('_config.yaml').read()).items())
 except IOError:
-    ignore_regexes = []
+    pass
 
 assert not os.listdir(args.output), 'output directory not empty'
 
@@ -69,10 +72,10 @@ while dirs:
             if args.debug:
                 print '%s is an internal file, ignoring' % source_path
 
-        # Also ignore anything in _ignore .
-        elif any(re.search(r, p) for r in ignore_regexes):
+        # If configured, ignore things.
+        elif any(re.search(r, p) for r in config['ignore_regexes']):
             if args.debug:
-                print '%s is matched by .ignore , ignoring' % source_path
+                print "%s is matched by config['ignore_regexes'] , ignoring" % source_path
 
         # Make a directory.
         elif os.path.isdir(source_path):
