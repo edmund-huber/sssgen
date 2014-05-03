@@ -43,10 +43,9 @@ def read_and_strip_front_matter(fn):
         y = yaml.load(s)
     return y, f.read()
 
-# The info we glean from all the files, and the list of (generator, source
-# path, input, target path) to generate after scanning everything.
 global_tree = {}
 to_generate = []
+output_path_to_yaml = {}
 
 # Paths relative to `args.input`, with the cumulative base YAML.
 dirs = [([''], {})]
@@ -54,46 +53,47 @@ dirs = [([''], {})]
 while dirs:
     direc_list, base_y = dirs.pop(0)
     direc = os.path.join(*direc_list)
-    source_dir = os.path.join(args.input, direc)
+    input_dir = os.path.join(args.input, direc)
 
     # Find `_inherit.yaml` first and apply it to the base YAML, since it
     # applies to everything in and under this directory.
-    ps = os.listdir(source_dir)
+    ps = os.listdir(input_dir)
     if '_inherit.yaml' in ps:
-        y = yaml.load(open('_inherit.yaml').read())
+        y = yaml.load(open(os.path.join(direc, '_inherit.yaml')).read())
         base_y = dict(base_y.items() + y.items())
 
     for p in ps:
-        source_path = os.path.join(source_dir, p)
-        target_path = os.path.join(args.output, direc, p)
+        input_path = os.path.join(input_dir, p)
+        output_path = os.path.join(args.output, direc, p)
 
         # Ignore anything starting with '_'.
         if p.startswith('_'):
             if args.debug:
-                print '%s is an internal file, ignoring' % source_path
+                print '%s is an internal file, ignoring' % input_path
 
         # If configured, ignore things.
         elif any(re.search(r, p) for r in config['ignore_regexes']):
             if args.debug:
-                print "%s is matched by config['ignore_regexes'] , ignoring" % source_path
+                print "%s is matched by config['ignore_regexes'] , ignoring" % input_path
 
         # Make a directory.
-        elif os.path.isdir(source_path):
+        elif os.path.isdir(input_path):
             if args.debug:
-                print 'mkdir %s' % target_path
-            os.mkdir(target_path)
+                print 'mkdir %s' % output_path
+            os.mkdir(output_path)
             dirs.append((direc_list + [p], base_y))
 
-        elif os.path.isfile(source_path):
-            y = {}
-            if p.endswith('.mako') or p.endswith('.mako_layout'):
-                _, ext = os.path.splitext(p)
+        elif os.path.isfile(input_path):
+            _, ext = os.path.splitext(p)
 
+            y = {}
+            if ext in ['.mako', '.mako_layout']:
                 # Strip the front matter and maybe insert <%inherit/> tag.
-                page_y, source = read_and_strip_front_matter(source_path)
+                page_y, source = read_and_strip_front_matter(input_path)
                 y = dict(base_y.items() + page_y.items())
                 if 'layout' in y:
                     source = '<%%inherit file="/%s"/>\n%s' % (y['layout'], source)
+                    y['layout'] = os.path.join(args.output, y['layout'])
                 try:
                     os.makedirs(os.path.join(templates_dir, direc))
                 except OSError:
@@ -103,18 +103,20 @@ while dirs:
                 f.close()
 
                 # If a .mako: add a 'url' attribute, and defer rendering until later.
-                if p.endswith('.mako'):
+                if ext == '.mako':
                     y['url'] = os.path.join(direc, p[:-len(ext)])
-                    target_path = target_path[:-len(ext)]
-                    to_generate.append((os.path.join(direc, p), y, target_path))
+                    output_path = output_path[:-len(ext)]
+                    to_generate.append((os.path.join(direc, p), output_path))
+
+                output_path_to_yaml[output_path] = y
             else:
                 if args.debug:
-                    print 'copying %s to %s' % (source_path, target_path)
-                shutil.copyfile(source_path, target_path)
+                    print 'copying %s to %s' % (input_path, output_path)
+                shutil.copyfile(input_path, output_path)
 
             # Any concrete file gets added to the 'tree', which is a nested dict.
             t = global_tree
-            for part in filter(None, os.path.normpath(target_path[len(args.output):]).split(os.sep)):
+            for part in filter(None, os.path.normpath(output_path[len(args.output):]).split(os.sep)):
                 if part not in t:
                     t[part] = {}
                 t = t[part]
@@ -124,22 +126,33 @@ while dirs:
             for k, v in y.items():
                 t[k] = v
         else:
-            assert False, 'what is this: %s' % source_path
+            assert False, 'what is this: %s' % input_path
 
 # Template rendering deferred until now so that each template:
 #   . gets the full file `tree` in the render-data,
 #   . has been rewritten with <%inherit/> tags,
 #   . has had its front matter stripped.
-for path, inp, target_path in to_generate:
+for path, output_path in to_generate:
+
+    # Traverse the chain of layouts to build the final page yaml.
+    page_y = {}
+    y = output_path_to_yaml[output_path]
+    while True:
+        page_y = dict(y.items() + page_y.items())
+        if 'layout' in y:
+            y = output_path_to_yaml[y['layout']]
+        else:
+            break
+
     if args.debug:
-        print 'generating %s from %s, yaml=%s' % (target_path, os.path.join(templates_dir, path), y)
+        print 'generating %s from %s, yaml=%s' % (output_path, os.path.join(templates_dir, path), page_y)
 
     lookup = mako.lookup.TemplateLookup(directories=[templates_dir], input_encoding='utf-8', output_encoding='utf-8')
     data = {
         'tree': global_tree,
-        'page': inp,
+        'page': page_y
     }
-    f = open(target_path, 'w')
+    f = open(output_path, 'w')
     f.write(lookup.get_template(path).render(**data))
     f.close()
 
