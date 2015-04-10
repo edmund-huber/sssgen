@@ -91,8 +91,8 @@ while dirs:
             y = {}
             if ext in ['.mako', '.mako_layout']:
                 # Strip the front matter and maybe insert <%inherit/> tag.
-                page_y, source = read_and_strip_front_matter(input_path)
-                y = dict(base_y.items() + page_y.items())
+                page_yaml, source = read_and_strip_front_matter(input_path)
+                y = dict(base_y.items() + page_yaml.items())
                 if 'layout' in y:
                     source = '<%%inherit file="/%s"/>\n%s' % (y['layout'], source)
                     y['layout'] = os.path.join(args.output, y['layout'])
@@ -137,22 +137,22 @@ while dirs:
 for path, output_path in to_generate:
 
     # Traverse the chain of layouts to build the final page yaml.
-    page_y = {}
+    page_yaml = {}
     y = output_path_to_yaml[output_path]
     while True:
-        page_y = dict(y.items() + page_y.items())
+        page_yaml = dict(y.items() + page_yaml.items())
         if 'layout' in y:
             y = output_path_to_yaml[y['layout']]
         else:
             break
 
     if args.debug:
-        print 'generating %s from %s, yaml=%s' % (output_path, os.path.join(templates_dir, path), page_y)
+        print 'generating %s from %s, yaml=%s' % (output_path, os.path.join(templates_dir, path), page_yaml)
 
     lookup = mako.lookup.TemplateLookup(directories=[templates_dir], input_encoding='utf-8', output_encoding='utf-8')
     data = {
         'tree': global_tree,
-        'page': page_y
+        'page': page_yaml
     }
     f = open(output_path, 'w')
     f.write(lookup.get_template(path).render(**data))
