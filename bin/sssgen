@@ -43,6 +43,10 @@ def read_and_strip_front_matter(fn):
                 break
             s += line
         y = yaml.load(s)
+    # If given the empty string, the yaml library considers that to be None,
+    # which is not useful for us.
+    if y is None:
+        y = {}
     return y, f.read()
 
 global_tree = {}
