@@ -57,7 +57,7 @@ output_path_to_yaml = {}
 dirs = [([''], {})]
 
 while dirs:
-    direc_list, base_y = dirs.pop(0)
+    direc_list, base_yaml = dirs.pop(0)
     direc = os.path.join(*direc_list)
     input_dir = os.path.join(args.input, direc)
 
@@ -65,8 +65,8 @@ while dirs:
     # applies to everything in and under this directory.
     filenames = os.listdir(input_dir)
     if '_inherit.yaml' in filenames:
-        y = yaml.load(open(os.path.join(direc, '_inherit.yaml')).read())
-        base_y = dict(base_y.items() + y.items())
+        more_base_yaml = yaml.load(open(os.path.join(direc, '_inherit.yaml')).read())
+        base_yaml = dict(base_yaml.items() + more_base_yaml.items())
 
     for filename in filenames:
         input_path = os.path.join(input_dir, filename)
@@ -75,19 +75,19 @@ while dirs:
         # Ignore anything starting with '_'.
         if filename.startswith('_'):
             if args.debug:
-                print '%s is an internal file, ignoring' % input_path
+                print "ignoring '%s', starts with _" % input_path
 
         # If configured, ignore things.
         elif any(re.search(r, filename) for r in config['ignore_regexes']):
             if args.debug:
-                print "%s is matched by config['ignore_regexes'] , ignoring" % input_path
+                print "ignoring '%s', is matched by config['ignore_regexes']" % input_path
 
         # Make a directory.
         elif os.path.isdir(input_path):
             if args.debug:
                 print 'mkdir %s' % output_path
             os.mkdir(output_path)
-            dirs.append((direc_list + [filename], base_y))
+            dirs.append((direc_list + [filename], base_yaml))
 
         elif os.path.isfile(input_path):
             _, ext = os.path.splitext(filename)
@@ -96,7 +96,7 @@ while dirs:
             if ext in ['.mako', '.mako_layout']:
                 # Strip the front matter and maybe insert <%inherit/> tag.
                 page_yaml, source = read_and_strip_front_matter(input_path)
-                y = dict(base_y.items() + page_yaml.items())
+                y = dict(base_yaml.items() + page_yaml.items())
                 if 'layout' in y:
                     source = '<%%inherit file="/%s"/>\n%s' % (y['layout'], source)
                     y['layout'] = os.path.join(args.output, y['layout'])
