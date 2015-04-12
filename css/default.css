@@ -1,0 +1,90 @@
+* {
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+    margin: 0;
+    line-height: 1.6;
+    font-size: 19px;
+}
+
+#content > * {
+    margin-top: 1em;
+    margin-right: auto;
+    margin-bottom: 1em;
+    margin-left: auto;
+    width: 65%;
+}
+
+#content > div + div {
+    margin-top: 1.5em;
+}
+
+#content > h1, #content > h2, #content > h3 {
+    margin-left: 10%;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    margin-bottom: 1.5em;
+    margin-top: 2em;
+}
+
+table {
+    border-collapse: collapse;
+    font-size: inherit;
+}
+
+.frontpage > *{
+    margin: 1em 0;
+}
+
+/* blog styles */
+
+.blog-post {
+    padding: 2em 0;
+}
+
+.blog-post> div {
+    text-indent: 2em;
+}
+
+.blog-post > div * {
+    text-indent: 0;
+}
+
+blockquote {
+    border-left: 2em solid #eee;
+    font-style: italic;
+    padding-left: 2em;
+}
+
+code {
+    background-color: #eee;
+    border: 1px solid #ddd;
+    font-size: 90%;
+    padding: 2px;
+}
+
+#content > code {
+    display: block;
+    font-family: monospace;
+    padding-left: 17.5%;
+    padding-right: 17.5%;
+    white-space: pre;
+    width: 100%;
+}
+
+/* specific to rtl blog post */
+
+.annotation {
+    font-family: monospace;
+}
+
+.annotation td {
+    padding: 0 5px;
+}
+
+.annotation td:nth-child(2n) {
+    background-color: #eee;
+}
