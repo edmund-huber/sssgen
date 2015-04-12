@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='sssgen',
-    version='0.2',
+    version='0.3',
     description='Simple static site generator',
     url='https://github.com/edmund-huber/sssgen',
     license='MIT',
