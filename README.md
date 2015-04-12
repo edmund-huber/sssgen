@@ -9,8 +9,10 @@ First, install:
 sudo python setup.py install
 ```
 
-Then check out the example project in `example/`:
+Then check out the tutorial in `tutorial/`:
 
 ```
-ssgen --input example/
+sssgen --input tutorial/ --serve
 ```
+
+Visit `localhost:8000` in your browser.
