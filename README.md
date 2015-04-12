@@ -15,4 +15,4 @@ Then check out the tutorial in `tutorial/`:
 sssgen --input tutorial/ --serve
 ```
 
-Visit `localhost:8000` in your browser.
+Visit <localhost:8000> in your browser. Or just visit <http://edmund-huber.github.io/sssgen/>.
