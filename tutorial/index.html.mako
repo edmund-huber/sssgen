@@ -97,7 +97,7 @@ layout: default.html.mako_layout
 <ul>
     Here are my favorite Spongebob Squarepants characters:
     % for name_of_file, yaml in tree['textfiles'].items():
-        <li><a href="/${yaml['url']}">${name_of_file}</a></li>
+        <li><a href="${yaml['url']}">${name_of_file}</a></li>
     % endfor
 </ul>
 </%text></code>
@@ -105,6 +105,6 @@ layout: default.html.mako_layout
 <ul>
     Here are my favorite Spongebob Squarepants characters:
     % for name_of_file, yaml in tree['textfiles'].items():
-        <li><a href="/${yaml['url']}">${name_of_file}</a></li>
+        <li><a href="${yaml['url']}">${name_of_file}</a></li>
     % endfor
 </ul>

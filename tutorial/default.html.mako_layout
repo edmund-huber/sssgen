@@ -3,8 +3,8 @@
     <head>
         <meta charset="utf-8">
         <title>${page['title']}</title>
-        <link rel="stylesheet" href="/css/reset.css">
-        <link rel="stylesheet" href="/css/default.css">
+        <link rel="stylesheet" href="css/reset.css">
+        <link rel="stylesheet" href="css/default.css">
     </head>
     <body>
         <div id="content" ${'class="%s"' % page['class'] if 'class' in page else ''}>
