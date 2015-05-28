@@ -2,8 +2,8 @@
     <head>
         <meta charset="utf-8">
         <title>Introduction to sssgen</title>
-        <link rel="stylesheet" href="/sssgen/css/reset.css">
-        <link rel="stylesheet" href="/sssgen/css/default.css">
+        <link rel="stylesheet" href="css/reset.css">
+        <link rel="stylesheet" href="css/default.css">
     </head>
     <body>
         <div id="content" >
@@ -40,7 +40,7 @@
 
 
 
-<pre>{   'layout': 'derp/default.html.mako_layout',
+<pre>{   'layout': '/tmp/tmp.wcTMjXadTS/default.html.mako_layout',
     'title': 'Introduction to sssgen',
     'url': 'index.html'}</pre>
 
@@ -91,7 +91,7 @@
 
 <pre>{   'css': {   'default.css': {   'url': 'css/default.css'},
                'reset.css': {   'url': 'css/reset.css'}},
-    'index.html': {   'layout': 'derp/default.html.mako_layout',
+    'index.html': {   'layout': '/tmp/tmp.wcTMjXadTS/default.html.mako_layout',
                       'title': 'Introduction to sssgen',
                       'url': 'index.html'},
     'textfiles': {   'spongebob.txt': {   'url': 'textfiles/spongebob.txt'},
@@ -108,14 +108,14 @@
 <code>&lt;ul&gt;
     Here are my favorite Spongebob Squarepants characters:
     % for name_of_file, yaml in tree[&#39;textfiles&#39;].items():
-        &lt;li&gt;&lt;a href=&#34;/${yaml[&#39;url&#39;]}&#34;&gt;${name_of_file}&lt;/a&gt;&lt;/li&gt;
+        &lt;li&gt;&lt;a href=&#34;${yaml[&#39;url&#39;]}&#34;&gt;${name_of_file}&lt;/a&gt;&lt;/li&gt;
     % endfor
 &lt;/ul&gt;</code>
 
 <ul>
     Here are my favorite Spongebob Squarepants characters:
-        <li><a href="/textfiles/squidward.txt">squidward.txt</a></li>
-        <li><a href="/textfiles/spongebob.txt">spongebob.txt</a></li>
+        <li><a href="textfiles/squidward.txt">squidward.txt</a></li>
+        <li><a href="textfiles/spongebob.txt">spongebob.txt</a></li>
 </ul>
 
         </div>
