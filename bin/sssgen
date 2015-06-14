@@ -164,7 +164,9 @@ for path, output_path in mako_templates_to_render:
     if args.debug:
         print 'generating %s from %s, page_yaml=%s' % (output_path, os.path.join(templates_dir, path), page_yaml)
 
-    lookup = mako.lookup.TemplateLookup(directories=[templates_dir], input_encoding='utf-8', output_encoding='utf-8')
+    # Also include `args.input` in TemplateLookup so that things like
+    # <%include> will work.
+    lookup = mako.lookup.TemplateLookup(directories=[templates_dir, args.input], input_encoding='utf-8', output_encoding='utf-8')
     data = {
         'tree': global_tree,
         'page': page_yaml
