@@ -33,10 +33,17 @@ templates_dir = tempfile.mkdtemp()
 if args.debug:
     print 'intermediate templates dir is %s' % templates_dir
 
+def peek_line(f):
+    p = f.tell()
+    s = f.readline()
+    f.seek(p)
+    return s
+
 def read_and_strip_front_matter(fn):
     f = open(fn)
     y = {}
-    if f.readline() == '---\n':
+    if peek_line(f) == '---\n':
+        f.readline()
         s = ''
         while True:
             line = f.readline()
