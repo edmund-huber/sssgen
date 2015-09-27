@@ -103,7 +103,7 @@ while dirs:
             _, ext = os.path.splitext(filename)
             if ext == '.mako':
                 filename = filename[:-len(ext)]
-            partial_page_yaml = {'url': os.path.join(direc, filename)}
+            partial_page_yaml = {'url': os.path.join('/', direc, filename)}
 
             if ext in ['.mako', '.mako_layout']:
                 # Strip the front matter and maybe insert <%inherit/> tag.
