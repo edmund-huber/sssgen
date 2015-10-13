@@ -9,6 +9,7 @@ import re
 import SimpleHTTPServer
 import SocketServer
 import shutil
+import sys
 import tempfile
 import yaml
 
@@ -151,6 +152,7 @@ while dirs:
 #   . gets the full file `tree` in the render-data,
 #   . has been rewritten with <%inherit/> tags,
 #   . has had its front matter stripped.
+error = False
 for path, output_path in mako_templates_to_render:
 
     # The final page yaml is the aggregation of each layout YAML, and then the
@@ -179,8 +181,16 @@ for path, output_path in mako_templates_to_render:
         'page': page_yaml
     }
     f = open(output_path, 'w')
-    f.write(lookup.get_template(path).render(**data))
+    try:
+        f.write(lookup.get_template(path).render(**data))
+    except Exception, e:
+        error = error or True
+        print 'error rendering %s, %s: %s' % (path, type(e).__name__, e.message)
     f.close()
+
+if error:
+    print 'there were errors, aborting'
+    sys.exit(1)
 
 if args.serve:
     print 'serving at http://localhost:8000'
