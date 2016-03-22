@@ -192,9 +192,13 @@ if error:
     print 'there were errors, aborting'
     sys.exit(1)
 
+class DefaultContentTypeIsHTML(SimpleHTTPServer.SimpleHTTPRequestHandler):
+    extensions_map = SimpleHTTPServer.SimpleHTTPRequestHandler.extensions_map
+    extensions_map[''] = 'text/html'
+
 if args.serve:
     print 'serving at http://localhost:8000'
     os.chdir(args.output)
     SocketServer.TCPServer.allow_reuse_address = True
-    httpd = SocketServer.TCPServer(('localhost', 8000), SimpleHTTPServer.SimpleHTTPRequestHandler)
+    httpd = SocketServer.TCPServer(('localhost', 8000), DefaultContentTypeIsHTML)
     httpd.serve_forever()
