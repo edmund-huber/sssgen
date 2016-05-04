@@ -107,7 +107,7 @@ while dirs:
             partial_page_yaml = {'url': os.path.join('/', direc, filename)}
 
             if ext in ['.mako', '.mako_layout']:
-                # Strip the front matter and maybe insert <%inherit/> tag.
+                # Strip the front matter and maybe insert <%inherit/> tag into the source.
                 front_matter_yaml, source = read_and_strip_front_matter(input_path)
                 partial_page_yaml = dict(inherited_yaml.items() + front_matter_yaml.items() + partial_page_yaml.items())
                 if 'layout' in partial_page_yaml:
@@ -117,7 +117,10 @@ while dirs:
                     os.makedirs(os.path.join(templates_dir, direc))
                 except OSError:
                     pass
+
+                # Write out source to templates_dir, with helpers.
                 f = open(os.path.join(templates_dir, direc, filename), 'w')
+                f.write('<%namespace name="sssgen" module="sssgen.mako_helpers"/>')
                 f.write(source)
                 f.close()
 
