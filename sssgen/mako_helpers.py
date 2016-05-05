@@ -6,4 +6,4 @@ import mako.runtime
 def collapse_html(context):
     html = mako.runtime.capture(context, context['caller'].body)
     collapsed_html = re.sub(">\s*<", "><", html)
-    context.write(collapsed_html)
+    return collapsed_html
