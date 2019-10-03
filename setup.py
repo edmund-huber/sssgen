@@ -11,7 +11,7 @@ setup(
     packages=['sssgen'],
     install_requires=[
         'Mako==0.9.1',
-        'PyYAML==3.11',
+        'PyYAML==5.1',
         'argparse==1.2.1'
     ]
 )
