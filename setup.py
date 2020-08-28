@@ -10,8 +10,9 @@ setup(
     scripts=['bin/sssgen'],
     packages=['sssgen'],
     install_requires=[
-        'Mako==0.9.1',
-        'PyYAML==3.11',
-        'argparse==1.2.1'
+        'Mako==1.1.3',
+        'MarkupSafe==1.1.1',
+        'PyYAML==5.3.1',
+        'argparse==1.4.0'
     ]
 )
