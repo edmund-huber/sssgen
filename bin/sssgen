@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-
 import argparse
+import json
 import mako.lookup
 import mako.template
 import os
@@ -11,7 +11,6 @@ import SocketServer
 import shutil
 import sys
 import tempfile
-import yaml
 
 parser = argparse.ArgumentParser(description='generate a static site')
 parser.add_argument('--debug', action='store_true')
@@ -24,7 +23,7 @@ config = {
     'ignore_regexes': []
 }
 try:
-    config = dict(config.items() + yaml.load(open('_config.yaml').read()).items())
+    config = dict(config.items() + json.load(open('_config.json')).items())
 except IOError:
     pass
 
@@ -42,7 +41,7 @@ def peek_line(f):
 
 def read_and_strip_front_matter(fn):
     f = open(fn)
-    y = {}
+    j = {}
     if peek_line(f) == '---\n':
         f.readline()
         s = ''
@@ -51,43 +50,37 @@ def read_and_strip_front_matter(fn):
             if line == '---\n':
                 break
             s += line
-        y = yaml.load(s)
-    # If given the empty string, the yaml library considers that to be None,
-    # which is not useful for us.
-    if y is None:
-        y = {}
-    return y, f.read()
+        try:
+            j = json.loads(s)
+        except:
+            raise Exception('%s: the front matter is not valid JSON' % fn)
+    return j, f.read()
 
 global_tree = {}
 mako_templates_to_render = []
-output_path_to_yaml = {}
+output_path_to_json = {}
 
-# Paths relative to `args.input`, with the cumulative base YAML.
+# Paths relative to `args.input`, with the cumulative base JSON.
 dirs = [([''], {})]
 
 while dirs:
-    direc_list, inherited_yaml = dirs.pop(0)
+    direc_list, inherited_json = dirs.pop(0)
     direc = os.path.join(*direc_list)
     input_dir = os.path.join(args.input, direc)
 
-    # Find `_inherit.yaml` first and apply it to the base YAML, since it
+    # Find `_inherit.json` first and apply it to the base JSON, since it
     # applies to everything in and under this directory.
     filenames = os.listdir(input_dir)
-    if '_inherit.yaml' in filenames:
-        more_inherited_yaml = yaml.load(open(os.path.join(input_dir, '_inherit.yaml')).read())
-        inherited_yaml = dict(inherited_yaml.items() + more_inherited_yaml.items())
+    if '_inherit.json' in filenames:
+        more_inherited_json = json.load(open(os.path.join(input_dir, '_inherit.json')).read())
+        inherited_json = dict(inherited_json.items() + more_inherited_json.items())
 
     for filename in filenames:
         input_path = os.path.join(input_dir, filename)
         output_path = os.path.join(args.output, direc, filename)
 
-        # Ignore anything starting with '_'.
-        if filename.startswith('_'):
-            if args.debug:
-                print "ignoring '%s', starts with _" % input_path
-
-        # If configured, ignore things.
-        elif any(re.search(r, filename) for r in config['ignore_regexes']):
+        # Ignore files.
+        if any(re.search(r, filename) for r in config['ignore_regexes']):
             if args.debug:
                 print "ignoring '%s', is matched by config['ignore_regexes']" % input_path
 
@@ -96,23 +89,26 @@ while dirs:
             if args.debug:
                 print 'mkdir %s' % output_path
             os.mkdir(output_path)
-            dirs.append((direc_list + [filename], inherited_yaml))
+            dirs.append((direc_list + [filename], inherited_json))
 
         elif os.path.isfile(input_path):
 
-            # Initially, partial_page_yaml is just the intrinsic yaml.
+            # Initially, partial_page_json is just the intrinsic JSON.
             _, ext = os.path.splitext(filename)
             if ext == '.mako':
                 filename = filename[:-len(ext)]
-            partial_page_yaml = {'url': os.path.join('/', direc, filename)}
+            partial_page_json = {'url': os.path.join('/', direc, filename)}
 
             if ext in ['.mako', '.mako_layout']:
                 # Strip the front matter and maybe insert <%inherit/> tag into the source.
-                front_matter_yaml, source = read_and_strip_front_matter(input_path)
-                partial_page_yaml = dict(inherited_yaml.items() + front_matter_yaml.items() + partial_page_yaml.items())
-                if 'layout' in partial_page_yaml:
-                    source = '<%%inherit file="/%s"/>\n%s' % (partial_page_yaml['layout'], source)
-                    partial_page_yaml['layout'] = os.path.join(args.output, partial_page_yaml['layout'])
+                front_matter_json, source = read_and_strip_front_matter(input_path)
+                partial_page_json = dict(inherited_json.items() + front_matter_json.items() + partial_page_json.items())
+                if 'layout' in partial_page_json:
+                    try:
+                        source = '<%%inherit file="/%s"/>\n%s' % (partial_page_json['layout'], source)
+                    except:
+                        import pdb; pdb.set_trace()
+                    partial_page_json['layout'] = os.path.join(args.output, partial_page_json['layout'])
                 try:
                     os.makedirs(os.path.join(templates_dir, direc))
                 except OSError:
@@ -129,7 +125,7 @@ while dirs:
                     output_path = output_path[:-len(ext)]
                     mako_templates_to_render.append((os.path.join(direc, filename), output_path))
 
-                output_path_to_yaml[output_path] = partial_page_yaml
+                output_path_to_json[output_path] = partial_page_json
             else:
                 # If it's any other kind of file, just copy it over.
                 if args.debug:
@@ -144,9 +140,9 @@ while dirs:
                         t[part] = {}
                     t = t[part]
 
-                # The leaf (file) gets the yaml,
+                # The leaf (file) gets the JSON,
                 t.clear()
-                for k, v in partial_page_yaml.items():
+                for k, v in partial_page_json.items():
                     t[k] = v
         else:
             assert False, 'what is this: %s' % input_path
@@ -158,30 +154,30 @@ while dirs:
 error = False
 for path, output_path in mako_templates_to_render:
 
-    # The final page yaml is the aggregation of each layout YAML, and then the
-    # {inherited, front matter, and intrinsic} YAML.
-    page_yaml = {}
-    y = output_path_to_yaml[output_path]
+    # The final page JSON is the aggregation of each layout JSON, and then the
+    # {inherited, front matter, and intrinsic} JSON.
+    page_json = {}
+    j = output_path_to_json[output_path]
     visited_layouts = [output_path]
     while True:
-        page_yaml = dict(y.items() + page_yaml.items())
-        if 'layout' in y:
-            if y['layout'] in visited_layouts:
+        page_json = dict(j.items() + page_json.items())
+        if 'layout' in j:
+            if j['layout'] in visited_layouts:
                 raise Exception('detected a loop in layout resolution: %s' % visited_layouts)
-            visited_layouts.append(y['layout'])
-            y = output_path_to_yaml[y['layout']]
+            visited_layouts.append(j['layout'])
+            j = output_path_to_json[j['layout']]
         else:
             break
 
     if args.debug:
-        print 'generating %s from %s, page_yaml=%s' % (output_path, os.path.join(templates_dir, path), page_yaml)
+        print 'generating %s from %s, page_json=%s' % (output_path, os.path.join(templates_dir, path), page_json)
 
     # Also include `args.input` in TemplateLookup so that things like
     # <%include> will work.
     lookup = mako.lookup.TemplateLookup(directories=[templates_dir, args.input], input_encoding='utf-8', output_encoding='utf-8')
     data = {
         'tree': global_tree,
-        'page': page_yaml
+        'page': page_json
     }
     f = open(output_path, 'w')
     try:
