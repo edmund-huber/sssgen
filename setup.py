@@ -2,8 +2,10 @@ from setuptools import setup
 
 setup(
     name='sssgen',
-    version='0.4',
-    description='Simple static site generator',
+    version='0.5',
+    author='Edmund Huber',
+    author_email='me@ehuber.info',
+    description='Simple Static Site GENerator',
     url='https://github.com/edmund-huber/sssgen',
     license='MIT',
     zip_safe=False,
@@ -14,5 +16,6 @@ setup(
         'MarkupSafe==1.1.1',
         'PyYAML==5.3.1',
         'argparse==1.4.0'
-    ]
+    ],
+    python_requires='>=2.7'
 )
