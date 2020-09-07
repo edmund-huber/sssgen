@@ -13,8 +13,7 @@ setup(
     packages=['sssgen'],
     install_requires=[
         'Mako==1.1.3',
-        'MarkupSafe==1.1.1',
-        'argparse==1.4.0'
+        'MarkupSafe==1.1.1'
     ],
-    python_requires='>=2.7'
+    python_requires='>=3.5'
 )

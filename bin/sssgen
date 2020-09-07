@@ -1,4 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
+import sys
+if sys.version_info.major != 3:
+    raise RuntimeError('sssgen only supports Python 3')
+
 import argparse
 import json
 import mako.lookup
