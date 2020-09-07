@@ -191,7 +191,7 @@ for path, output_path in mako_templates_to_render:
     }
     f = open(output_path, 'w')
     try:
-        f.write(lookup.get_template(path).render(**data))
+        f.write(lookup.get_template(path).render_unicode(**data))
     except Exception as e:
         errors += 1
         print('Error rendering "%s"!' % path)
