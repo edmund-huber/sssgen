@@ -11,11 +11,12 @@ import mako.template
 import os
 import os.path
 import re
-import SimpleHTTPServer
-import SocketServer
+import http.server
+import socketserver
 import shutil
 import sys
 import tempfile
+import traceback
 
 parser = argparse.ArgumentParser(description='generate a static site')
 parser.add_argument('--debug', action='store_true')
@@ -28,15 +29,15 @@ config = {
     'ignore_regexes': []
 }
 try:
-    config = dict(config.items() + json.load(open('_config.json')).items())
+    config = dict(list(config.items()) + list(json.load(open('_config.json')).items()))
 except IOError:
     pass
 
-assert not os.listdir(args.output), 'output directory not empty'
+assert not os.listdir(args.output), 'Output directory is not empty!'
 
 templates_dir = tempfile.mkdtemp()
 if args.debug:
-    print 'intermediate templates dir is %s' % templates_dir
+    print('Intermediate templates dir is "%s".' % templates_dir)
 
 def peek_line(f):
     p = f.tell()
@@ -77,8 +78,8 @@ while dirs:
     # applies to everything in and under this directory.
     filenames = os.listdir(input_dir)
     if '_inherit.json' in filenames:
-        more_inherited_json = json.load(open(os.path.join(input_dir, '_inherit.json')).read())
-        inherited_json = dict(inherited_json.items() + more_inherited_json.items())
+        more_inherited_json = json.load(open(os.path.join(input_dir, '_inherit.json')))
+        inherited_json = dict(list(inherited_json.items()) + list(more_inherited_json.items()))
 
     for filename in filenames:
         input_path = os.path.join(input_dir, filename)
@@ -87,12 +88,12 @@ while dirs:
         # Ignore files.
         if any(re.search(r, filename) for r in config['ignore_regexes']):
             if args.debug:
-                print "ignoring '%s', is matched by config['ignore_regexes']" % input_path
+                print('Ignoring "%s", is matched by config[\'ignore_regexes\'].' % input_path)
 
         # Make a directory.
         elif os.path.isdir(input_path):
             if args.debug:
-                print 'mkdir %s' % output_path
+                print('Creating directory "%s".' % output_path)
             os.mkdir(output_path)
             dirs.append((direc_list + [filename], inherited_json))
 
@@ -107,7 +108,7 @@ while dirs:
             if ext in ['.mako', '.mako_layout']:
                 # Strip the front matter and maybe insert <%inherit/> tag into the source.
                 front_matter_json, source = read_and_strip_front_matter(input_path)
-                partial_page_json = dict(inherited_json.items() + front_matter_json.items() + partial_page_json.items())
+                partial_page_json = dict(list(inherited_json.items()) + list(front_matter_json.items()) + list(partial_page_json.items()))
                 if 'layout' in partial_page_json:
                     try:
                         source = '<%%inherit file="/%s"/>\n%s' % (partial_page_json['layout'], source)
@@ -134,29 +135,29 @@ while dirs:
             else:
                 # If it's any other kind of file, just copy it over.
                 if args.debug:
-                    print 'copying %s to %s' % (input_path, output_path)
+                    print('Copying "%s" to "%s".' % (input_path, output_path))
                 shutil.copyfile(input_path, output_path)
 
             # Any concrete file gets added to the 'tree', which is a nested dict.
             if ext != '.mako_layout':
                 t = global_tree
-                for part in filter(None, os.path.normpath(output_path[len(args.output):]).split(os.sep)):
+                for part in [_f for _f in os.path.normpath(output_path[len(args.output):]).split(os.sep) if _f]:
                     if part not in t:
                         t[part] = {}
                     t = t[part]
 
                 # The leaf (file) gets the JSON,
                 t.clear()
-                for k, v in partial_page_json.items():
+                for k, v in list(partial_page_json.items()):
                     t[k] = v
         else:
-            assert False, 'what is this: %s' % input_path
+            assert False
 
 # Template rendering deferred until now so that each template:
 #   . gets the full file `tree` in the render-data,
 #   . has been rewritten with <%inherit/> tags,
 #   . has had its front matter stripped.
-error = False
+errors = 0
 for path, output_path in mako_templates_to_render:
 
     # The final page JSON is the aggregation of each layout JSON, and then the
@@ -165,7 +166,7 @@ for path, output_path in mako_templates_to_render:
     j = output_path_to_json[output_path]
     visited_layouts = [output_path]
     while True:
-        page_json = dict(j.items() + page_json.items())
+        page_json = dict(list(j.items()) + list(page_json.items()))
         if 'layout' in j:
             if j['layout'] in visited_layouts:
                 raise Exception('detected a loop in layout resolution: %s' % visited_layouts)
@@ -175,7 +176,7 @@ for path, output_path in mako_templates_to_render:
             break
 
     if args.debug:
-        print 'generating %s from %s, page_json=%s' % (output_path, os.path.join(templates_dir, path), page_json)
+        print('Generating "%s" from "%s", page_json=%s\n.' % (output_path, os.path.join(templates_dir, path), page_json))
 
     # Also include `args.input` in TemplateLookup so that things like
     # <%include> will work.
@@ -187,22 +188,28 @@ for path, output_path in mako_templates_to_render:
     f = open(output_path, 'w')
     try:
         f.write(lookup.get_template(path).render(**data))
-    except Exception, e:
-        error = error or True
-        print 'error rendering %s, %s: %s' % (path, type(e).__name__, e.message)
+    except Exception as e:
+        errors += 1
+        print('Error rendering "%s"!' % path)
+        print('    Exception: %s' % e)
+        _, _, exc_tb = sys.exc_info()
+        print('    Traceback:')
+        for f_s in traceback.extract_tb(exc_tb):
+            print('        %s L%i:' % (f_s.filename, f_s.lineno))
+            print('            %s' % f_s.line)
     f.close()
 
-if error:
-    print 'there were errors, aborting'
+if errors > 0:
+    print('There were %i error(s)!' % errors)
     sys.exit(1)
 
-class DefaultContentTypeIsHTML(SimpleHTTPServer.SimpleHTTPRequestHandler):
-    extensions_map = SimpleHTTPServer.SimpleHTTPRequestHandler.extensions_map
+class DefaultContentTypeIsHTML(http.server.SimpleHTTPRequestHandler):
+    extensions_map = http.server.SimpleHTTPRequestHandler.extensions_map
     extensions_map[''] = 'text/html'
 
 if args.serve:
-    print 'serving at http://localhost:8000'
+    print('Serving at http://localhost:8000 ..')
     os.chdir(args.output)
-    SocketServer.TCPServer.allow_reuse_address = True
-    httpd = SocketServer.TCPServer(('localhost', 8000), DefaultContentTypeIsHTML)
+    socketserver.TCPServer.allow_reuse_address = True
+    httpd = socketserver.TCPServer(('localhost', 8000), DefaultContentTypeIsHTML)
     httpd.serve_forever()
