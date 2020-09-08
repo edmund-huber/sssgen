@@ -10,13 +10,17 @@ import mako.lookup
 import mako.template
 import os
 import os.path
+import queue
 import re
 import http.server
 import socketserver
 import shutil
 import sys
 import tempfile
+import time
 import traceback
+import watchdog.observers
+import watchdog.events
 
 parser = argparse.ArgumentParser(description='generate a static site')
 parser.add_argument('--debug', action='store_true')
@@ -24,24 +28,6 @@ parser.add_argument('--input', default=os.getcwd())
 parser.add_argument('--output', default=None)
 parser.add_argument('--serve', action='store_true')
 args = parser.parse_args()
-
-if args.output is None:
-    args.output = tempfile.mkdtemp()
-    print('Outputting at "%s".' % args.output)
-
-config = {
-    'ignore_regexes': []
-}
-try:
-    config = dict(list(config.items()) + list(json.load(open('_config.json')).items()))
-except IOError:
-    pass
-
-assert not os.listdir(args.output), 'Output directory is not empty!'
-
-templates_dir = tempfile.mkdtemp()
-if args.debug:
-    print('Intermediate templates dir is "%s".' % templates_dir)
 
 def peek_line(f):
     p = f.tell()
@@ -66,154 +52,240 @@ def read_and_strip_front_matter(fn):
             raise Exception('%s: the front matter is not valid JSON' % fn)
     return j, f.read()
 
-global_tree = {}
-mako_templates_to_render = []
-output_path_to_json = {}
-
-# Paths relative to `args.input`, with the cumulative base JSON.
-dirs = [([''], {})]
-
-while dirs:
-    direc_list, inherited_json = dirs.pop(0)
-    direc = os.path.join(*direc_list)
-    input_dir = os.path.join(args.input, direc)
-
-    # Find `_inherit.json` first and apply it to the base JSON, since it
-    # applies to everything in and under this directory.
-    filenames = os.listdir(input_dir)
-    if '_inherit.json' in filenames:
-        more_inherited_json = json.load(open(os.path.join(input_dir, '_inherit.json')))
-        inherited_json = dict(list(inherited_json.items()) + list(more_inherited_json.items()))
-
-    for filename in filenames:
-        input_path = os.path.join(input_dir, filename)
-        output_path = os.path.join(args.output, direc, filename)
-
-        # Ignore files.
-        if any(re.search(r, filename) for r in config['ignore_regexes']):
-            if args.debug:
-                print('Ignoring "%s", is matched by config[\'ignore_regexes\'].' % input_path)
-
-        # Make a directory.
-        elif os.path.isdir(input_path):
-            if args.debug:
-                print('Creating directory "%s".' % output_path)
-            os.mkdir(output_path)
-            dirs.append((direc_list + [filename], inherited_json))
-
-        elif os.path.isfile(input_path):
-
-            # Initially, partial_page_json is just the intrinsic JSON.
-            _, ext = os.path.splitext(filename)
-            if ext == '.mako':
-                filename = filename[:-len(ext)]
-            partial_page_json = {'url': os.path.join('/', direc, filename)}
-
-            if ext in ['.mako', '.mako_layout']:
-                # Strip the front matter and maybe insert <%inherit/> tag into the source.
-                front_matter_json, source = read_and_strip_front_matter(input_path)
-                partial_page_json = dict(list(inherited_json.items()) + list(front_matter_json.items()) + list(partial_page_json.items()))
-                if 'layout' in partial_page_json:
-                    try:
-                        source = '<%%inherit file="/%s"/>\n%s' % (partial_page_json['layout'], source)
-                    except:
-                        import pdb; pdb.set_trace()
-                    partial_page_json['layout'] = os.path.join(args.output, partial_page_json['layout'])
-                try:
-                    os.makedirs(os.path.join(templates_dir, direc))
-                except OSError:
-                    pass
-
-                # Write out source to templates_dir, with helpers.
-                f = open(os.path.join(templates_dir, direc, filename), 'w')
-                f.write('<%namespace name="sssgen" module="sssgen.mako_helpers"/>')
-                f.write(source)
-                f.close()
-
-                # If a .mako, defer rendering until later.
-                if ext == '.mako':
-                    output_path = output_path[:-len(ext)]
-                    mako_templates_to_render.append((os.path.join(direc, filename), output_path))
-
-                output_path_to_json[output_path] = partial_page_json
-            else:
-                # If it's any other kind of file, just copy it over.
-                if args.debug:
-                    print('Copying "%s" to "%s".' % (input_path, output_path))
-                shutil.copyfile(input_path, output_path)
-
-            # Any concrete file gets added to the 'tree', which is a nested dict.
-            if ext != '.mako_layout':
-                t = global_tree
-                for part in [_f for _f in os.path.normpath(output_path[len(args.output):]).split(os.sep) if _f]:
-                    if part not in t:
-                        t[part] = {}
-                    t = t[part]
-
-                # The leaf (file) gets the JSON,
-                t.clear()
-                for k, v in list(partial_page_json.items()):
-                    t[k] = v
-        else:
-            assert False
-
-# Template rendering deferred until now so that each template:
-#   . gets the full file `tree` in the render-data,
-#   . has been rewritten with <%inherit/> tags,
-#   . has had its front matter stripped.
-errors = 0
-for path, output_path in mako_templates_to_render:
-
-    # The final page JSON is the aggregation of each layout JSON, and then the
-    # {inherited, front matter, and intrinsic} JSON.
-    page_json = {}
-    j = output_path_to_json[output_path]
-    visited_layouts = [output_path]
-    while True:
-        page_json = dict(list(j.items()) + list(page_json.items()))
-        if 'layout' in j:
-            if j['layout'] in visited_layouts:
-                raise Exception('detected a loop in layout resolution: %s' % visited_layouts)
-            visited_layouts.append(j['layout'])
-            j = output_path_to_json[j['layout']]
-        else:
-            break
-
-    if args.debug:
-        print('Generating "%s" from "%s", page_json=%s\n.' % (output_path, os.path.join(templates_dir, path), page_json))
-
-    # Also include `args.input` in TemplateLookup so that things like
-    # <%include> will work.
-    lookup = mako.lookup.TemplateLookup(directories=[templates_dir, args.input], input_encoding='utf-8', output_encoding='utf-8')
-    data = {
-        'tree': global_tree,
-        'page': page_json
+def generate():
+    config = {
+        'ignore_regexes': []
     }
-    f = open(output_path, 'w')
     try:
-        f.write(lookup.get_template(path).render_unicode(**data))
-    except Exception as e:
-        errors += 1
-        print('Error rendering "%s"!' % path)
-        print('    Exception: %s' % e)
-        _, _, exc_tb = sys.exc_info()
-        print('    Traceback:')
-        for f_s in traceback.extract_tb(exc_tb):
-            print('        %s L%i:' % (f_s.filename, f_s.lineno))
-            print('            %s' % f_s.line)
-    f.close()
+        config = dict(list(config.items()) + list(json.load(open('_config.json')).items()))
+    except IOError:
+        pass
 
-if errors > 0:
-    print('There were %i error(s)!' % errors)
-    sys.exit(1)
+    if args.serve:
+        assert args.output is None, "--serve doesn't work with --output"
+    output_root = args.output or tempfile.mkdtemp()
+    assert not os.listdir(output_root), 'Output directory is not empty!'
+    if not args.serve:
+        print('Outputting at "%s".' % output_root)
+
+    templates_dir = tempfile.mkdtemp()
+    if args.debug:
+        print('Intermediate templates dir is "%s".' % templates_dir)
+
+    global_tree = {}
+    mako_templates_to_render = []
+    output_path_to_json = {}
+
+    # Paths relative to `args.input`, with the cumulative base JSON.
+    dirs = [([''], {})]
+
+    while dirs:
+        direc_list, inherited_json = dirs.pop(0)
+        direc = os.path.join(*direc_list)
+        input_dir = os.path.join(args.input, direc)
+
+        # Find `_inherit.json` first and apply it to the base JSON, since it
+        # applies to everything in and under this directory.
+        filenames = os.listdir(input_dir)
+        if '_inherit.json' in filenames:
+            more_inherited_json = json.load(open(os.path.join(input_dir, '_inherit.json')))
+            inherited_json = dict(list(inherited_json.items()) + list(more_inherited_json.items()))
+
+        for filename in filenames:
+            input_path = os.path.join(input_dir, filename)
+            output_path = os.path.join(output_root, direc, filename)
+
+            # Ignore files.
+            if any(re.search(r, filename) for r in config['ignore_regexes']):
+                if args.debug:
+                    print('Ignoring "%s", is matched by config[\'ignore_regexes\'].' % input_path)
+
+            # Make a directory.
+            elif os.path.isdir(input_path):
+                if args.debug:
+                    print('Creating directory "%s".' % output_path)
+                os.mkdir(output_path)
+                dirs.append((direc_list + [filename], inherited_json))
+
+            elif os.path.isfile(input_path):
+                # Initially, partial_page_json is just the intrinsic JSON.
+                _, ext = os.path.splitext(filename)
+                if ext == '.mako':
+                    filename = filename[:-len(ext)]
+                partial_page_json = {'url': os.path.join('/', direc, filename)}
+
+                if ext in ['.mako', '.mako_layout']:
+                    # Strip the front matter and maybe insert <%inherit/> tag into the source.
+                    front_matter_json, source = read_and_strip_front_matter(input_path)
+                    partial_page_json = dict(list(inherited_json.items()) + list(front_matter_json.items()) + list(partial_page_json.items()))
+                    if 'layout' in partial_page_json:
+                        try:
+                            source = '<%%inherit file="/%s"/>\n%s' % (partial_page_json['layout'], source)
+                        except:
+                            import pdb; pdb.set_trace()
+                        partial_page_json['layout'] = os.path.join(output_root, partial_page_json['layout'])
+                    try:
+                        os.makedirs(os.path.join(templates_dir, direc))
+                    except OSError:
+                        pass
+
+                    # Write out source to templates_dir, with helpers.
+                    f = open(os.path.join(templates_dir, direc, filename), 'w')
+                    f.write('<%namespace name="sssgen" module="sssgen.mako_helpers"/>')
+                    f.write(source)
+                    f.close()
+
+                    # If a .mako, defer rendering until later.
+                    if ext == '.mako':
+                        output_path = output_path[:-len(ext)]
+                        mako_templates_to_render.append((os.path.join(direc, filename), output_path))
+
+                    output_path_to_json[output_path] = partial_page_json
+                else:
+                    # If it's any other kind of file, just copy it over.
+                    if args.debug:
+                        print('Copying "%s" to "%s".' % (input_path, output_path))
+                    shutil.copyfile(input_path, output_path)
+
+                # Any concrete file gets added to the 'tree', which is a nested dict.
+                if ext != '.mako_layout':
+                    t = global_tree
+                    for part in [_f for _f in os.path.normpath(output_path[len(output_root):]).split(os.sep) if _f]:
+                        if part not in t:
+                            t[part] = {}
+                        t = t[part]
+
+                    # The leaf (file) gets the JSON,
+                    t.clear()
+                    for k, v in list(partial_page_json.items()):
+                        t[k] = v
+            else:
+                assert False
+
+    # Template rendering deferred until now so that each template:
+    #   . gets the full file `tree` in the render-data,
+    #   . has been rewritten with <%inherit/> tags,
+    #   . has had its front matter stripped.
+    errors = 0
+    for path, output_path in mako_templates_to_render:
+
+        # The final page JSON is the aggregation of each layout JSON, and then
+        # the {inherited, front matter, and intrinsic} JSON.
+        page_json = {}
+        j = output_path_to_json[output_path]
+        visited_layouts = [output_path]
+        while True:
+            page_json = dict(list(j.items()) + list(page_json.items()))
+            if 'layout' in j:
+                if j['layout'] in visited_layouts:
+                    raise Exception('detected a loop in layout resolution: %s' % visited_layouts)
+                visited_layouts.append(j['layout'])
+                j = output_path_to_json[j['layout']]
+            else:
+                break
+
+        if args.debug:
+            print('Generating "%s" from "%s", page_json=%s\n.' % (output_path, os.path.join(templates_dir, path), page_json))
+
+        # Also include `args.input` in TemplateLookup so that things like
+        # <%include> will work.
+        lookup = mako.lookup.TemplateLookup(directories=[templates_dir, args.input], input_encoding='utf-8', output_encoding='utf-8')
+        data = {
+            'tree': global_tree,
+            'page': page_json
+        }
+        f = open(output_path, 'w')
+        try:
+            f.write(lookup.get_template(path).render_unicode(**data))
+        except Exception as e:
+            errors += 1
+            print('Error rendering "%s"!' % path)
+            print('    Exception: %s' % e)
+            _, _, exc_tb = sys.exc_info()
+            print('    Traceback:')
+            for f_s in traceback.extract_tb(exc_tb):
+                print('        %s L%i:' % (f_s.filename, f_s.lineno))
+                print('            %s' % f_s.line)
+        f.close()
+
+    if errors > 0:
+        print('There were %i error(s)!' % errors)
+        return output_root, False
+    return output_root, True
+
+if not args.serve:
+    _, success = generate()
+    sys.exit(0 if success else 1)
 
 class DefaultContentTypeIsHTML(http.server.SimpleHTTPRequestHandler):
     extensions_map = http.server.SimpleHTTPRequestHandler.extensions_map
     extensions_map[''] = 'text/html'
 
+class TCPServerWithTimeout(socketserver.TCPServer):
+    timeout = 1
+
+output_dir = None
+httpd = None
+
+def generate_and_restart_httpd():
+    print('Regenerating..')
+
+    # Stop the httpd server.
+    global httpd
+    if httpd is not None:
+        httpd.server_close()
+        httpd = None
+
+    # Set up a fresh, empty output folder, otherwise generate() will fail.
+    global output_dir
+    if output_dir is not None:
+        shutil.rmtree(output_dir)
+
+    # If generate() succeeds, restart the httpd server.
+    output_dir, success = generate()
+    if success:
+        os.chdir(output_dir)
+        socketserver.TCPServer.allow_reuse_address = True
+        httpd = TCPServerWithTimeout(('localhost', 8000), DefaultContentTypeIsHTML)
+        print('Serving %s at http://localhost:8000.' % output_dir)
+    else:
+        print('Not restarting httpd until the errors are fixed.')
+
+class EventHandler(watchdog.events.FileSystemEventHandler):
+
+    def __init__(self):
+        self.changes_queue = queue.Queue()
+
+    def on_any_event(self, e):
+        if args.debug:
+            print('EventHandler received: %s' % e)
+        self.changes_queue.put(e)
+
 if args.serve:
-    print('Serving at http://localhost:8000 ..')
-    os.chdir(args.output)
-    socketserver.TCPServer.allow_reuse_address = True
-    httpd = socketserver.TCPServer(('localhost', 8000), DefaultContentTypeIsHTML)
-    httpd.serve_forever()
+    generate_and_restart_httpd()
+    observer = watchdog.observers.Observer()
+    event_handler = EventHandler()
+    observer.schedule(event_handler, args.input, recursive=True)
+    observer.start()
+    try:
+        while True:
+            if args.debug:
+                print('Tick.')
+
+            # See if `watchdog` has noticed any changes in the input directory.
+            have_changes = False
+            try:
+                while True:
+                    _ = event_handler.changes_queue.get(block=False)
+                    time.sleep(0.5)
+                    have_changes = True
+            except queue.Empty:
+                pass
+            if have_changes:
+                generate_and_restart_httpd()
+
+            # Handle a request, or time out in 1s.
+            httpd.handle_request()
+    except KeyboardInterrupt:
+        observer.stop()
+    observer.join()
