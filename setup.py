@@ -12,7 +12,7 @@ setup(
     scripts=['bin/sssgen'],
     packages=['sssgen'],
     install_requires=[
-        'Mako==1.1.3',
+        'Mako==1.2.2',
         'MarkupSafe==1.1.1',
         'watchdog==0.10.3'
     ],
